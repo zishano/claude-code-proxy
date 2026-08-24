@@ -54,6 +54,11 @@ TOOL_INPUTS = {
 }
 
 
+# 当前模拟会话 ID(每 per_session 条切换一次)。真实 Claude Code 会带真实的
+# metadata.conversation_id;这里用伪造会话实现"多会话观感"。
+current_session = "session-1"
+
+
 def make_body():
     n_turns = random.randint(1, 3)
     messages = [{"role": "user",
@@ -71,6 +76,7 @@ def make_body():
         "temperature": round(random.uniform(0.2, 0.9), 1),
         "stream": random.random() < 0.5,
         "tools": random.sample(TOOLS, random.randint(1, 3)),
+        "metadata": {"conversation_id": current_session},
         "messages": messages,
     }
 
@@ -90,22 +96,32 @@ def send(body):
         return f"ERR:{e}"
 
 
+# python3 -u loop_sim.py 12 0.3
 def main():
+    global current_session
     limit = int(sys.argv[1]) if len(sys.argv) > 1 else 30
     interval = float(sys.argv[2]) if len(sys.argv) > 2 else 0.8
+    per_session = 10  # 每会话条数,用于模拟会话切换
+    session_index = 1
+    current_session = f"session-{session_index}"
     n = 0
     dist = {}
     is_real = KEY and not KEY.startswith("sk-missing")
     mode = "🔑 真实 key(将真实调用 API,会扣费)" if is_real else "⚠️ 假 key(真 API 会返回 401,但代理照常记录)"
     print(f"模式: {mode}")
-    print(f"开始模拟(共{limit or '∞'}条, 间隔{interval}s)。Ctrl+C 停止...")
+    print(f"开始模拟(共{limit or '∞'}条, 间隔{interval}s, 每{per_session}条切会话)。Ctrl+C 停止...")
     try:
         while True:
             body = make_body()
             st = send(body)
             dist[body["model"]] = dist.get(body["model"], 0) + 1
             n += 1
-            print(f"[{n:>3}] {body['model']:>18}  msgs={len(body['messages'])}  tools={len(body['tools'])}  HTTP{st}")
+            print(f"[{n:>3}] {body['model']:>18}  {body.get('metadata',{}).get('conversation_id'):>12}  HTTP{st}")
+            # 每 per_session 条切换到下一个模拟会话
+            if n % per_session == 0 and n < limit:
+                session_index += 1
+                current_session = f"session-{session_index}"
+                print(f"    ↳ 切换到会话: {current_session}")
             if limit and n >= limit:
                 break
             time.sleep(interval)

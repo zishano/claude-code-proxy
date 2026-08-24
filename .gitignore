@@ -13,6 +13,7 @@ requests/*
 requests.db
 *.log
 proxy.log
+trace/
 
 # Build artifacts
 bin/

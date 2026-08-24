@@ -47,6 +47,11 @@ func main() {
 
 	h := handler.New(anthropicService, storageService, logger, modelRouter)
 
+	// 初始化 trace 观测服务,并注入 handler
+	traceSvc := service.NewTraceService("", logger)
+	h.SetTraceService(traceSvc)
+	logger.Println("🧭 Trace service ready (trace/trace.jsonl)")
+
 	r := mux.NewRouter()
 
 	corsHandler := handlers.CORS(

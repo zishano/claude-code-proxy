@@ -27,6 +27,7 @@ type Handler struct {
 	storageService      service.StorageService
 	conversationService service.ConversationService
 	modelRouter         *service.ModelRouter
+	traceService        *service.TraceService
 	logger              *log.Logger
 }
 
@@ -40,6 +41,11 @@ func New(anthropicService service.AnthropicService, storageService service.Stora
 		modelRouter:         modelRouter,
 		logger:              logger,
 	}
+}
+
+// SetTraceService 注入 TraceService(由 main 提供)
+func (h *Handler) SetTraceService(ts *service.TraceService) {
+	h.traceService = ts
 }
 
 func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
@@ -122,11 +128,11 @@ func (h *Handler) Messages(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 
 	if req.Stream {
-		h.handleStreamingResponse(w, resp, requestLog, startTime)
+		h.handleStreamingResponse(w, resp, requestLog, startTime, extractSessionKey(bodyBytes))
 		return
 	}
 
-	h.handleNonStreamingResponse(w, resp, requestLog, startTime)
+	h.handleNonStreamingResponse(w, resp, requestLog, startTime, extractSessionKey(bodyBytes))
 }
 
 func (h *Handler) Models(w http.ResponseWriter, r *http.Request) {
@@ -241,7 +247,7 @@ func (h *Handler) NotFound(w http.ResponseWriter, r *http.Request) {
 	writeErrorResponse(w, "Not found", http.StatusNotFound)
 }
 
-func (h *Handler) handleStreamingResponse(w http.ResponseWriter, resp *http.Response, requestLog *model.RequestLog, startTime time.Time) {
+func (h *Handler) handleStreamingResponse(w http.ResponseWriter, resp *http.Response, requestLog *model.RequestLog, startTime time.Time, sessionKey string) {
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -278,12 +284,16 @@ func (h *Handler) handleStreamingResponse(w http.ResponseWriter, resp *http.Resp
 	var messageID string
 	var modelName string
 	var stopReason string
+	var firstChunkTime time.Time
 
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" || !strings.HasPrefix(line, "data:") {
 			continue
+		}
+		if firstChunkTime.IsZero() {
+			firstChunkTime = time.Now() // 首 token 到达时刻(TTFT 用)
 		}
 
 		streamingChunks = append(streamingChunks, line)
@@ -403,6 +413,9 @@ func (h *Handler) handleStreamingResponse(w http.ResponseWriter, resp *http.Resp
 		responseBody["usage"] = finalUsage
 	}
 
+	// 记录并注入 trace 观测快照(到 response.body)
+	h.recordAndInjectTrace(sessionKey, requestLog, finalUsage, startTime, firstChunkTime, true, resp.StatusCode, responseBody)
+
 	// Marshal to JSON for storage
 	responseBodyBytes, err := json.Marshal(responseBody)
 	if err != nil {
@@ -424,7 +437,7 @@ func (h *Handler) handleStreamingResponse(w http.ResponseWriter, resp *http.Resp
 	}
 }
 
-func (h *Handler) handleNonStreamingResponse(w http.ResponseWriter, resp *http.Response, requestLog *model.RequestLog, startTime time.Time) {
+func (h *Handler) handleNonStreamingResponse(w http.ResponseWriter, resp *http.Response, requestLog *model.RequestLog, startTime time.Time, sessionKey string) {
 	responseBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Printf("❌ Error reading Anthropic response: %v", err)
@@ -444,8 +457,16 @@ func (h *Handler) handleNonStreamingResponse(w http.ResponseWriter, resp *http.R
 	if resp.StatusCode == http.StatusOK {
 		var anthropicResp model.AnthropicResponse
 		if err := json.Unmarshal(responseBytes, &anthropicResp); err == nil {
-			// Successfully parsed - store the structured response
-			responseLog.Body = json.RawMessage(responseBytes)
+			// 注入 trace 到 response body(保留原有字段,仅新增 trace 键)
+			var bodyMap map[string]interface{}
+			injected := responseBytes
+			if err2 := json.Unmarshal(responseBytes, &bodyMap); err2 == nil && bodyMap != nil {
+				h.recordAndInjectTrace(sessionKey, requestLog, &anthropicResp.Usage, startTime, time.Time{}, false, resp.StatusCode, bodyMap)
+				if b3, err3 := json.Marshal(bodyMap); err3 == nil {
+					injected = b3
+				}
+			}
+			responseLog.Body = json.RawMessage(injected)
 		} else {
 			// If parsing fails, store as text but log the error
 			log.Printf("⚠️ Failed to parse Anthropic response: %v", err)
@@ -480,6 +501,47 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// recordAndInjectTrace 把当前请求的 trace 观测累加到指定会话,并把该会话的快照注入到目标 body map。
+func (h *Handler) recordAndInjectTrace(sessionKey string, requestLog *model.RequestLog, usage *model.AnthropicUsage, startTime, firstChunkTime time.Time, isStreaming bool, status int, targetMap map[string]interface{}) {
+	if h.traceService == nil {
+		return
+	}
+	in, out := 0, 0
+	if usage != nil {
+		in = usage.InputTokens
+		out = usage.OutputTokens
+	}
+	ttftMS := -1.0
+	if isStreaming && !firstChunkTime.IsZero() {
+		ttftMS = float64(firstChunkTime.Sub(startTime).Milliseconds())
+	}
+	apiMS := float64(time.Since(startTime).Milliseconds())
+	model := requestLog.RoutedModel
+	if model == "" {
+		model = requestLog.Model
+	}
+	h.traceService.Add(sessionKey, model, in, out, apiMS, ttftMS, isStreaming, status, requestLog.RequestID)
+	targetMap["trace"] = h.traceService.Snapshot(sessionKey)
+}
+
+// extractSessionKey 从请求体里提取会话标识(metadata.conversation_id),用于 trace 按会话分组。
+// 真实 Claude Code 会在请求 metadata 里带会话标识;模拟请求若不带则回退 "default"。
+func extractSessionKey(bodyBytes []byte) string {
+	var envelope struct {
+		Metadata struct {
+			ConversationID string `json:"conversation_id"`
+			UserID         string `json:"user_id"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal(bodyBytes, &envelope); err != nil {
+		return ""
+	}
+	if envelope.Metadata.ConversationID != "" {
+		return envelope.Metadata.ConversationID
+	}
+	return envelope.Metadata.UserID
 }
 
 func generateRequestID() string {

@@ -796,7 +796,7 @@ function ResponseDetails({ response }: { response: NonNullable<Request['response
                         )}
                       </button>
                     </div>
-                    <pre className="text-xs text-gray-700 overflow-x-auto max-h-96 overflow-y-auto">
+                    <pre className="text-xs text-gray-700 overflow-x-auto overflow-y-auto max-h-[384px] whitespace-pre-wrap break-words">
                       {response.body ? formatJSON(response.body) : response.bodyText}
                     </pre>
                   </div>
