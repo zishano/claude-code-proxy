@@ -12,6 +12,7 @@ interface ImageContentProps {
     media_type?: string;
   };
 }
+export type { ImageContentProps };
 
 export function ImageContent({ content }: ImageContentProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);

@@ -31,6 +31,13 @@ dist/
 .claude/
 CLAUDE.md
 
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
 # Test coverage
 coverage/
 *.cover

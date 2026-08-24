@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ChevronDown, ChevronRight, Wrench, Code, FileText, Database, AlertCircle } from 'lucide-react';
 import { ToolResult } from './ToolResult';
 import { ToolUse } from './ToolUse';
-import { ImageContent } from './ImageContent';
+import { ImageContent, type ImageContentProps } from './ImageContent';
 import { formatLargeText } from '../utils/formatters';
 
 interface ContentItem {
@@ -90,7 +90,7 @@ export function MessageContent({ content }: MessageContentProps) {
         );
 
       case 'image':
-        return <ImageContent content={content} />;
+        return <ImageContent content={content as ImageContentProps['content']} />;
 
       default:
         return (
