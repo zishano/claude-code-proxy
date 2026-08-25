@@ -56,6 +56,20 @@ type responseWriter struct {
 	statusCode int
 }
 
+// Unwrap lets http.ResponseController reach capabilities implemented by the
+// underlying server writer, including per-response write deadlines.
+func (rw *responseWriter) Unwrap() http.ResponseWriter {
+	return rw.ResponseWriter
+}
+
+// Flush preserves streaming support when the logging middleware wraps a
+// writer provided by net/http.
+func (rw *responseWriter) Flush() {
+	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
 func (rw *responseWriter) WriteHeader(code int) {
 	rw.statusCode = code
 	rw.ResponseWriter.WriteHeader(code)
