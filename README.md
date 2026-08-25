@@ -1,308 +1,101 @@
-# Claude Code Proxy
+# claude-code-proxy 使用指南（本环境适配版）
 
-![Claude Code Proxy Demo](demo.gif)
+透明代理 + 可视化面板，把 Claude Code 的请求转发到**本机 DeepSeek 网关**，并记录到 SQLite，供面板（5173）实时查看。同时可作为 **agentic-coding-analysis 的数据采集源**（产生 `requests.db` 供生成带 hash_ids 的 trace）。
 
-A transparent proxy for capturing and visualizing in-flight Claude Code requests and conversations, with optional agent routing to different LLM providers.
+> 原仓库通用 README 见 `README.original.md`；本文件针对本机（DeepSeek 后端）实际部署验证过。
 
-## What It Does
+## 架构
 
-Claude Code Proxy serves three main purposes:
-
-1. **Claude Code Proxy**: Intercepts and monitors requests from Claude Code (claude.ai/code) to the Anthropic API, allowing you to see what Claude Code is doing in real-time
-2. **Conversation Viewer**: Displays and analyzes your Claude API conversations with a beautiful web interface
-3. **Agent Routing (Optional)**: Routes specific Claude Code agents to different LLM providers (e.g., route code-reviewer agent to GPT-4o)
-
-## Features
-
-- **Transparent Proxy**: Routes Claude Code requests through the monitor without disruption
-- **Agent Routing (Optional)**: Map specific Claude Code agents to different LLM models
-- **Request Monitoring**: SQLite-based logging of all API interactions
-- **Live Dashboard**: Real-time visualization of requests and responses
-- **Conversation Analysis**: View full conversation threads with tool usage
-- **Easy Setup**: One-command startup for both services
-
-## Quick Start
-
-### Prerequisites
-- **Option 1**: Go 1.20+ and Node.js 18+ (for local development)
-- **Option 2**: Docker (for containerized deployment)
-- Claude Code
-
-### Installation
-
-#### Option 1: Local Development
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/seifghazi/claude-code-proxy.git
-   cd claude-code-proxy
-   ```
-
-2. **Configure the proxy**
-   ```bash
-   cp config.yaml.example config.yaml
-   ```
-
-3. **Install and run** (first time)
-   ```bash
-   make install  # Install all dependencies
-   make dev      # Start both services
-   ```
-
-4. **Subsequent runs** (after initial setup)
-   ```bash
-   make dev
-   # or
-   ./run.sh
-   ```
-
-#### Option 2: Docker
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/seifghazi/claude-code-proxy.git
-   cd claude-code-proxy
-   ```
-
-2. **Configure the proxy**
-   ```bash
-   cp config.yaml.example config.yaml
-   # Edit config.yaml as needed
-   ```
-
-3. **Build and run with Docker**
-   ```bash
-   # Build the image
-   docker build -t claude-code-proxy .
-   
-   # Run with default settings
-   docker run -p 3001:3001 -p 5173:5173 claude-code-proxy
-   ```
-
-4. **Run with persistent data and custom configuration**
-   ```bash
-   # Create a data directory for persistent SQLite database
-   mkdir -p ./data
-   
-   # Option 1: Run with config file (recommended)
-   docker run -p 3001:3001 -p 5173:5173 \
-     -v ./data:/app/data \
-     -v ./config.yaml:/app/config.yaml:ro \
-     claude-code-proxy
-   
-   # Option 2: Run with environment variables
-   docker run -p 3001:3001 -p 5173:5173 \
-     -v ./data:/app/data \
-     -e ANTHROPIC_FORWARD_URL=https://api.anthropic.com \
-     -e PORT=3001 \
-     -e WEB_PORT=5173 \
-     claude-code-proxy
-   ```
-
-5. **Docker Compose (alternative)**
-   ```yaml
-   # docker-compose.yml
-   version: '3.8'
-   services:
-     claude-code-proxy:
-       build: .
-       ports:
-         - "3001:3001"
-         - "5173:5173"
-       volumes:
-         - ./data:/app/data
-         - ./config.yaml:/app/config.yaml:ro  # Mount config file
-       environment:
-         - ANTHROPIC_FORWARD_URL=https://api.anthropic.com
-         - PORT=3001
-         - WEB_PORT=5173
-         - DB_PATH=/app/data/requests.db
-   ```
-   
-   Then run: `docker-compose up`
-
-### Using with Claude Code
-
-To use this proxy with Claude Code, set:
-```bash
-export ANTHROPIC_BASE_URL=http://localhost:3001
+```
+claude (ANTHROPIC_BASE_URL=3001)
+   → 3001 claude-code-proxy (记录 requests.db)
+       → 15721 DeepSeek 网关 (Anthropic 兼容)
+           → DeepSeek-v4-flash
+浏览器 → 5173 面板 (展示记录)
 ```
 
-Then launch Claude Code using the `claude` command.
+## 关键端口
 
-This will route Claude Code's requests through the proxy for monitoring.
+| 端口 | 角色 | 说明 |
+|---|---|---|
+| **3001** | 代理 API | claude / 脚本发的请求走这里，转发+记录 |
+| **5173** | 面板 | 浏览器看的界面 |
+| **15721** | DeepSeek 网关 | 代理转发的上游（Anthropic 兼容，认 `PROXY_MANAGED`）|
 
-### Access Points
-- **Web Dashboard**: http://localhost:5173
-- **API Proxy**: http://localhost:3001
-- **Health Check**: http://localhost:3001/health
+> ⚠️ 分清：**3001 是给 claude 连的**；**5173 是给浏览器看的**。claude 绝不连 5173。
 
-## Advanced Usage
+## 配置
 
-### Running Services Separately
+`.env` 已配好（.gitignore，不入库）：
+```
+ANTHROPIC_FORWARD_URL=http://127.0.0.1:15721   # 转发到 DeepSeek 网关
+ANTHROPIC_VERSION=2023-06-01
+PORT=3001
+DATABASE_PATH=requests.db
+```
+- **转发目标**：`127.0.0.1:15721`（可用 cc-switch 的同一网关）
+- **认证**：网关认 `PROXY_MANAGED`（15721 自己管理 key，代理原样透传）
+- **模型名**：`deepseek-v4-flash-0731`（15721 认的名字）
 
-If you need to run services independently:
+## 启动
 
 ```bash
-# Run proxy only
-make run-proxy
-
-# Run web interface only (in another terminal)
-make run-web
+cd /mnt/nvme1n1/data/lmk/project/claude-code-proxy
+./run.sh          # 前端 shell 用 ./run.sh (会 go build + 起 3001/5173)
+```
+或分开：
+```bash
+go build -o bin/proxy proxy/cmd/proxy/main.go && ./bin/proxy   # 起 3001
+cd web && npm run dev                                           # 起 5173
 ```
 
-### Available Make Commands
+## 让真实 Claude Code 走代理（采集数据）
+
+**关键**：你的 cc-switch 把 `ANTHROPIC_BASE_URL` 设成了 `15721`（settings.json），优先级比 shell export 高，**用环境变量 export 无法覆盖**。要用 **`--settings` 命令行参数**（优先级最高）：
 
 ```bash
-make install    # Install all dependencies
-make build      # Build both services
-make dev        # Run in development mode
-make clean      # Clean build artifacts
-make db-reset   # Reset database
-make help       # Show all commands
+claude --settings '{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:3001"}}'
 ```
 
-## Configuration
+> 这样就：claude 发请求到 **3001** → 被代理记录进 `requests.db` → 转发 15721 → DeepSeek 返回 200。
+> 验证：进 claude 问一句"在吗"能回复，且 `requests.db` 记录数增长。
+> ⚠️ 别用 `unset/export`，那是无效的（settings.json 优先级更高）。
 
-### Basic Setup
+## 生成多条 Request History（压测）
 
-Create a `config.yaml` file (or copy from `config.yaml.example`):
-```yaml
-server:
-  port: 3001
-
-providers:
-  anthropic:
-    base_url: "https://api.anthropic.com"
-    
-  openai: # if enabling subagent routing
-    api_key: "your-openai-key"  # Or set OPENAI_API_KEY env var
-
-storage:
-  db_path: "requests.db"
-```
-
-### Subagent Configuration (Optional)
-
-The proxy supports routing specific Claude Code agents to different LLM providers. This is an **optional** feature that's disabled by default.
-
-#### Enabling Subagent Routing
-
-1. **Enable the feature** in `config.yaml`:
-```yaml
-subagents:
-  enable: true  # Set to true to enable subagent routing
-  mappings:
-    code-reviewer: "gpt-4o"
-    data-analyst: "o3"
-    doc-writer: "gpt-3.5-turbo"
-```
-
-2. **Set up your Claude Code agents** following Anthropic's official documentation:
-   - 📖 **[Claude Code Subagents Documentation](https://docs.anthropic.com/en/docs/claude-code/sub-agents)**
-
-3. **How it works**: When Claude Code uses a subagent that matches one of your mappings, the proxy will automatically route the request to the specified model instead of Claude.
-
-### Practical Examples
-
-**Example 1: Code Review Agent → GPT-4o**
-```yaml
-# config.yaml
-subagents:
-  enable: true
-  mappings:
-    code-reviewer: "gpt-4o"
-```
-Use case: Route code review tasks to GPT-4o for faster responses while keeping complex coding tasks on Claude.
-
-**Example 2: Reasoning Agent → O3**  
-```yaml
-# config.yaml
-subagents:
-  enable: true
-  mappings:
-    deep-reasoning: "o3"
-```
-Use case: Send complex reasoning tasks to O3 while using Claude for general coding.
-
-**Example 3: Multiple Agents**
-```yaml
-# config.yaml
-subagents:
-  enable: true
-  mappings:
-    streaming-systems-engineer: "o3"
-    frontend-developer: "gpt-4o-mini"
-    security-auditor: "gpt-4o"
-```
-Use case: Different specialists for different tasks, optimizing for speed/cost/quality.
-
-### Environment Variables
-
-Override config via environment:
-- `PORT` - Server port
-- `OPENAI_API_KEY` - OpenAI API key
-- `DB_PATH` - Database path
-- `SUBAGENT_MAPPINGS` - Comma-separated mappings (e.g., `"code-reviewer:gpt-4o,data-analyst:o3"`)
-
-### Docker Environment Variables
-
-All environment variables can be configured when running the Docker container:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `3001` | Proxy server port |
-| `WEB_PORT` | `5173` | Web dashboard port |
-| `READ_TIMEOUT` | `600` | Server read timeout (seconds) |
-| `WRITE_TIMEOUT` | `600` | Server write timeout (seconds) |
-| `IDLE_TIMEOUT` | `600` | Server idle timeout (seconds) |
-| `ANTHROPIC_FORWARD_URL` | `https://api.anthropic.com` | Target Anthropic API URL |
-| `ANTHROPIC_VERSION` | `2023-06-01` | Anthropic API version |
-| `ANTHROPIC_MAX_RETRIES` | `3` | Maximum retry attempts |
-| `DB_PATH` | `/app/data/requests.db` | SQLite database path |
-
-Example with custom configuration:
+项目带 `gen_requests.py`（仿 claude-3 loop_sim 的多会话模拟脚本）：
 ```bash
-docker run -p 3001:3001 -p 5173:5173 \
-  -v ./data:/app/data \
-  -e PORT=8080 \
-  -e WEB_PORT=3000 \
-  -e ANTHROPIC_FORWARD_URL=https://api.anthropic.com \
-  -e DB_PATH=/app/data/custom.db \
-  claude-code-proxy
+cd /mnt/nvme1n1/data/lmk/project/claude-code-proxy
+python3 gen_requests.py 30 0.5     # 30 条,间隔0.5s
+python3 gen_requests.py 0 0.3      # 无限发
+```
+- 每条请求带 `metadata.conversation_id`（模拟会话切换，每 10 条切一个）
+- 面板按会话累积 Request History
+- 注意：带假工具调用/流式的请求，DeepSeek 可能返回空 content 或流式 usage=0（上游行为，非代理 bug）
+
+## 看数据
+
+- **面板**：浏览器 `http://localhost:5173`（Requests / Conversations）
+- **API**：`http://localhost:3001/api/requests`
+- **健康**：`http://localhost:3001/health`
+
+## 与其他仓库配合
+
+```
+claude-code-proxy  (采集 requests.db)
+        ↓
+agentic-coding-analysis  (生成带 hash_ids 的 trace)
+        ↓
+kv-cache-tester  (压测推理服务器)
 ```
 
+采集足够真实会话后，跑 `agentic-coding-analysis` 的四步（见它那份 README）。
 
-## Project Structure
+## 常见坑
 
-```
-claude-code-proxy/
-├── proxy/                  # Go proxy server
-│   ├── cmd/               # Application entry points
-│   ├── internal/          # Internal packages
-│   └── go.mod            # Go dependencies
-├── web/                   # React Remix frontend
-│   ├── app/              # Remix application
-│   └── package.json      # Node dependencies
-├── run.sh                # Start script
-├── .env.example          # Environment template
-└── README.md            # This file
-```
-
-## Features in Detail
-
-### Request Monitoring
-- All API requests logged to SQLite database
-- Searchable request history
-- Request/response body inspection
-- Conversation threading
-
-### Web Dashboard
-- Real-time request streaming
-- Interactive request explorer
-- Conversation visualization
-- Performance metrics
-
-## License
-
-MIT License - see [LICENSE](LICENSE) for details.
+| 现象 | 原因 | 解决 |
+|---|---|---|
+| claude 请求没进 requests.db | cc-switch 把 base_url 盖成 15721 | 用 `claude --settings` 指定 3001 |
+| 面板没数据 | 没走代理 / requests.db 空 | 确认真实 claude 走 3001 并对话 |
+| `UI not available` (3001/) | 那是简易界面，不影响转发 | 看面板用 5173，不是 3001 |
+| token 都是 0 | 流式时 DeepSeek usage 恒 0 | 用非流式(stream:false)，或看 t 字段 |
