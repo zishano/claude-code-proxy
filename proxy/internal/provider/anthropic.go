@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"path"
 	"strings"
-	"time"
 
 	"github.com/seifghazi/claude-code-monitor/internal/config"
 )
@@ -22,7 +21,9 @@ type AnthropicProvider struct {
 func NewAnthropicProvider(cfg *config.AnthropicProviderConfig) Provider {
 	return &AnthropicProvider{
 		client: &http.Client{
-			Timeout: 300 * time.Second, // 5 minutes timeout
+			// Streaming lifetime is governed by the request context. An absolute
+			// client timeout would terminate otherwise healthy long-lived SSE.
+			Timeout: 0,
 		},
 		config: cfg,
 	}

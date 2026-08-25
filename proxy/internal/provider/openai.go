@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/seifghazi/claude-code-monitor/internal/config"
 	"github.com/seifghazi/claude-code-monitor/internal/model"
@@ -25,7 +24,9 @@ type OpenAIProvider struct {
 func NewOpenAIProvider(cfg *config.OpenAIProviderConfig) Provider {
 	return &OpenAIProvider{
 		client: &http.Client{
-			Timeout: 300 * time.Second, // 5 minutes timeout
+			// Streaming lifetime is governed by the request context. An absolute
+			// client timeout would terminate otherwise healthy long-lived SSE.
+			Timeout: 0,
 		},
 		config: cfg,
 	}

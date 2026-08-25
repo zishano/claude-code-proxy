@@ -37,7 +37,7 @@ type providerPattern struct {
 // providerPatterns defines how to route models to providers based on name prefix.
 // Order matters - first match wins.
 var providerPatterns = []providerPattern{
-	{"gpt-", "openai"},
+	{"gpt-", "anthropic"},
 	{"o1", "openai"}, // o1, o1-mini, o1-pro
 	{"o3", "openai"}, // o3, o3-mini, o3-pro
 	{"claude-", "anthropic"},

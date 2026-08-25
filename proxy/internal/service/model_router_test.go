@@ -1,7 +1,9 @@
 package service
 
 import (
+	"context"
 	"log"
+	"net/http"
 	"os"
 	"testing"
 
@@ -9,6 +11,64 @@ import (
 	"github.com/seifghazi/claude-code-monitor/internal/model"
 	"github.com/seifghazi/claude-code-monitor/internal/provider"
 )
+
+type testProvider string
+
+func (p testProvider) Name() string {
+	return string(p)
+}
+
+func (p testProvider) ForwardRequest(context.Context, *http.Request) (*http.Response, error) {
+	panic("test provider must not forward requests")
+}
+
+func TestModelRouter_ProviderSelection(t *testing.T) {
+	cfg := &config.Config{
+		Subagents: config.SubagentsConfig{
+			Enable:   false,
+			Mappings: map[string]string{},
+		},
+	}
+	providers := map[string]provider.Provider{
+		"anthropic": testProvider("anthropic"),
+		"openai":    testProvider("openai"),
+	}
+	router := NewModelRouter(cfg, providers, log.New(os.Stdout, "test: ", 0))
+
+	tests := []struct {
+		model        string
+		wantProvider string
+	}{
+		{model: "gpt-5.6-luna", wantProvider: "anthropic"},
+		{model: "gpt-5.6-terra", wantProvider: "anthropic"},
+		{model: "gpt-4o", wantProvider: "anthropic"},
+		{model: "gpt-custom-test", wantProvider: "anthropic"},
+		{model: "o1", wantProvider: "openai"},
+		{model: "o1-mini", wantProvider: "openai"},
+		{model: "o3", wantProvider: "openai"},
+		{model: "o3-pro", wantProvider: "openai"},
+		{model: "claude-3-opus-20240229", wantProvider: "anthropic"},
+		{model: "unknown-model", wantProvider: "anthropic"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			decision, err := router.DetermineRoute(&model.AnthropicRequest{Model: tt.model})
+			if err != nil {
+				t.Fatalf("DetermineRoute() error = %v", err)
+			}
+			if got := decision.Provider.Name(); got != tt.wantProvider {
+				t.Fatalf("provider = %q, want %q", got, tt.wantProvider)
+			}
+			if decision.OriginalModel != tt.model {
+				t.Errorf("OriginalModel = %q, want %q", decision.OriginalModel, tt.model)
+			}
+			if decision.TargetModel != tt.model {
+				t.Errorf("TargetModel = %q, want %q", decision.TargetModel, tt.model)
+			}
+		})
+	}
+}
 
 func TestModelRouter_EdgeCases(t *testing.T) {
 	// Setup
