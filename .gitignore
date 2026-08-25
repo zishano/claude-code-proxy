@@ -13,6 +13,7 @@ requests/*
 requests.db
 *.log
 proxy.log
+trace/
 
 # Build artifacts
 bin/
@@ -30,6 +31,13 @@ dist/
 # Claude-specific files
 .claude/
 CLAUDE.md
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
 
 # Test coverage
 coverage/

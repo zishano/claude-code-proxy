@@ -38,8 +38,8 @@ type providerPattern struct {
 // Order matters - first match wins.
 var providerPatterns = []providerPattern{
 	{"gpt-", "openai"},
-	{"o1", "openai"},  // o1, o1-mini, o1-pro
-	{"o3", "openai"},  // o3, o3-mini, o3-pro
+	{"o1", "openai"}, // o1, o1-mini, o1-pro
+	{"o3", "openai"}, // o3, o3-mini, o3-pro
 	{"claude-", "anthropic"},
 }
 
