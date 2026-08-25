@@ -26,8 +26,11 @@ KEY = os.environ.get("ANTHROPIC_API_KEY", "PROXY_MANAGED")
 MODEL = "deepseek-v4-flash-0731"
 # ============================================================
 
-# 非流式:保证上游返回真实 usage,便于 hash 分块。(流式时 DeepSeek usage 恒 0)
-STREAM = False
+# 流式开关:
+#   True  = 流式 → trace 里 type="s" 且带 ttft 字段(注意:DeepSeek 流式 usage 恒 0,in/out 会是 0)
+#   False = 非流式 → type="n",无 ttft(上游返回真实 usage, hash 分块更准)
+# 若要看 trace 里的 s + ttft,设 STREAM = True
+STREAM = True
 
 # 让每个会话的内容不同,但会话内保持一定主题(便于 hash 前缀重叠的观察)
 TOPICS = {
