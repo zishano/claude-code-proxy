@@ -43,3 +43,8 @@ temp/
 
 # Config
 config.yaml
+# Local analysis scripts and reports
+collect_*.py
+code-audit-report.md
+__pycache__/
+*.pyc

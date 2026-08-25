@@ -278,6 +278,8 @@ func (h *Handler) handleStreamingResponse(w http.ResponseWriter, resp *http.Resp
 	var messageID string
 	var modelName string
 	var stopReason string
+	var ttftSet bool     // 是否已记录首个内容块(ttft)
+	var ttftMillis int64 // 首 token 延迟(ms),仅流式
 
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
@@ -352,6 +354,11 @@ func (h *Handler) handleStreamingResponse(w http.ResponseWriter, resp *http.Resp
 
 		switch event.Type {
 		case "content_block_delta":
+			// 记录首个内容块到达时间 = TTFT(首 token 延迟)
+			if !ttftSet && event.Delta != nil && (event.Delta.Type == "text_delta" || event.Delta.Type == "input_json_delta") {
+				ttftSet = true
+				ttftMillis = time.Since(startTime).Milliseconds()
+			}
 			if event.Delta != nil {
 				if event.Delta.Type == "text_delta" {
 					fullResponseText.WriteString(event.Delta.Text)
@@ -375,6 +382,7 @@ func (h *Handler) handleStreamingResponse(w http.ResponseWriter, resp *http.Resp
 		Headers:         SanitizeHeaders(resp.Header),
 		StreamingChunks: streamingChunks,
 		ResponseTime:    time.Since(startTime).Milliseconds(),
+		TTFT:            ttftMillis, // 首 token 延迟(ms), 未捕获则 0(pre-omitempty 不会写入 null)
 		IsStreaming:     true,
 		CompletedAt:     time.Now().Format(time.RFC3339),
 	}

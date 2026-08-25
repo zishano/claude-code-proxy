@@ -783,7 +783,7 @@ function ResponseDetails({ response }: { response: NonNullable<Request['response
                       <span className="text-sm font-medium text-gray-700">Response</span>
                       <button
                         onClick={() => handleCopy(
-                          response.body ? formatJSON(response.body) : (response.bodyText || ''), 
+                          response.body ? formatJSON(response.body, 0) : (response.bodyText || ''),
                           'responseBody'
                         )}
                         className="p-1 text-gray-500 hover:text-gray-700 transition-colors"
@@ -796,8 +796,8 @@ function ResponseDetails({ response }: { response: NonNullable<Request['response
                         )}
                       </button>
                     </div>
-                    <pre className="text-xs text-gray-700 overflow-x-auto max-h-96 overflow-y-auto">
-                      {response.body ? formatJSON(response.body) : response.bodyText}
+                    <pre className="text-xs text-gray-700 overflow-x-auto">
+                      {response.body ? formatJSON(response.body, 0) : response.bodyText}
                     </pre>
                   </div>
                 </div>

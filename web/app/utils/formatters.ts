@@ -24,7 +24,8 @@ export function formatValue(value: any): string {
 export function formatJSON(obj: any, maxLength: number = 1000): string {
   try {
     const jsonString = JSON.stringify(obj, null, 2);
-    if (jsonString.length > maxLength) {
+    // maxLength <= 0 表示不限制长度,返回完整 JSON
+    if (maxLength > 0 && jsonString.length > maxLength) {
       return jsonString.substring(0, maxLength) + '...';
     }
     return jsonString;
