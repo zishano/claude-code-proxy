@@ -70,6 +70,12 @@ func (h *Handler) Messages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := prepareStreamWriteDeadline(w, req.Stream); err != nil {
+		log.Printf("❌ Unable to clear streaming write deadline: %v", err)
+		writeErrorResponse(w, streamWriteDeadlineErrorCode, http.StatusInternalServerError)
+		return
+	}
+
 	requestID := generateRequestID()
 	startTime := time.Now()
 
